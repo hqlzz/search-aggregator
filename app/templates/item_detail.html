@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}{{ item.title }} - 搜索聚合站{% endblock %}
+{% block content %}
+<section class="hero">
+  <p><a href="{{ url_for('main.index') }}">← 返回首页</a></p>
+  <h2>{{ item.title }}</h2>
+  <div class="placeholder-card item-detail-card">
+    <p class="result-meta">来源：{{ item.source_name }}</p>
+    <p class="result-meta">分类：{{ item.category_name or '未分类' }}</p>
+    {% if item.summary %}
+      <p>{{ item.summary }}</p>
+    {% endif %}
+    {% if item.content %}
+      <div class="item-content">{{ item.content }}</div>
+    {% endif %}
+    {% if item.external_url %}
+      <p><a href="{{ item.external_url }}" target="_blank" rel="noopener noreferrer">查看原文</a></p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

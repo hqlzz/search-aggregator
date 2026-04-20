@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}搜索结果 - 搜索聚合站{% endblock %}
+{% block content %}
+<section class="hero">
+  <h2>搜索结果</h2>
+  <form method="get" action="{{ url_for('main.search') }}" class="search-form">
+    <label class="sr-only" for="results-search">搜索关键词</label>
+    <input id="results-search" type="search" name="q" placeholder="输入关键词搜索" value="{{ query }}">
+    <label for="results-mode">搜索模式</label>
+    <select id="results-mode" name="mode">
+      <option value="local"{% if search_mode == 'local' %} selected{% endif %}>站内搜索</option>
+      <option value="aggregate"{% if search_mode == 'aggregate' %} selected{% endif %}>聚合搜索</option>
+    </select>
+    <label for="results-source">按来源筛选</label>
+    <select id="results-source" name="source">
+      <option value=""{% if not selected_source_slug %} selected{% endif %}>全部来源</option>
+      {% for source in source_options %}
+        <option value="{{ source.slug }}"{% if selected_source_slug == source.slug %} selected{% endif %}>{{ source.name }}</option>
+      {% endfor %}
+    </select>
+    <label for="results-category">按分类筛选</label>
+    <select id="results-category" name="category">
+      <option value=""{% if not selected_category_slug %} selected{% endif %}>全部分类</option>
+      {% for category in category_options %}
+        <option value="{{ category.slug }}"{% if selected_category_slug == category.slug %} selected{% endif %}>{{ category.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">搜索</button>
+  </form>
+  <div class="placeholder-card">
+    {% if query %}
+      <p>关键词：<strong>{{ query }}</strong></p>
+    {% else %}
+      <p>请输入关键词后再搜索。</p>
+    {% endif %}
+    <p>当前搜索模式：{{ '聚合搜索' if search_mode == 'aggregate' else '站内搜索' }}</p>
+    {% if selected_source and search_mode == 'local' %}
+      <p>当前筛选来源：{{ selected_source.name }}</p>
+    {% endif %}
+    {% if selected_category and search_mode == 'local' %}
+      <p>当前筛选分类：{{ selected_category.name }}</p>
+    {% endif %}
+    {% if aggregate_notice %}
+      <p>{{ aggregate_notice }}</p>
+    {% endif %}
+    <p>共找到 {{ result_count }} 条结果</p>
+  </div>
+</section>
+
+<section>
+  {% if search_mode == 'aggregate' %}
+    <p>聚合搜索结果区预留中。</p>
+  {% elif results %}
+    <ul class="result-list">
+      {% for item in results %}
+        <li class="result-card">
+          <h3><a href="{{ url_for('main.item_detail', slug=item.slug) }}">{{ item.title }}</a></h3>
+          <p class="result-meta">来源：{{ item.source_name }}</p>
+          {% if item.summary %}
+            <p>{{ item.summary }}</p>
+          {% endif %}
+          <p><a href="{{ url_for('main.item_detail', slug=item.slug) }}">查看详情</a></p>
+          {% if item.external_url %}
+            <p><a href="{{ item.external_url }}" target="_blank" rel="noopener noreferrer">查看原文</a></p>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% elif query %}
+    <p>没有找到匹配的条目，请尝试其他关键词。</p>
+  {% else %}
+    <p>当前尚未执行检索。</p>
+  {% endif %}
+</section>
+{% endblock %}

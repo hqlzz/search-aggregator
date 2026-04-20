@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block title %}统一搜索 - 搜索聚合站{% endblock %}
+{% block content %}
+<section class="hero">
+  <h2>统一搜索入口</h2>
+  <p>聚合多个来源的数据，提供统一检索、筛选与后续扩展能力。</p>
+  <form method="get" action="{{ url_for('main.search') }}" class="search-form">
+    <label class="sr-only" for="homepage-search">搜索关键词</label>
+    <input id="homepage-search" type="search" name="q" placeholder="输入关键词搜索" value="{{ query }}">
+    <label for="homepage-mode">搜索模式</label>
+    <select id="homepage-mode" name="mode">
+      <option value="local"{% if search_mode == 'local' %} selected{% endif %}>站内搜索</option>
+      <option value="aggregate"{% if search_mode == 'aggregate' %} selected{% endif %}>聚合搜索</option>
+    </select>
+    <label for="homepage-source">按来源筛选</label>
+    <select id="homepage-source" name="source">
+      <option value=""{% if not selected_source_slug %} selected{% endif %}>全部来源</option>
+      {% for source in source_options %}
+        <option value="{{ source.slug }}"{% if selected_source_slug == source.slug %} selected{% endif %}>{{ source.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">搜索</button>
+  </form>
+  <div class="placeholder-card">
+    <h3>数据库概览</h3>
+    <p>已接入 {{ homepage.source_count }} 个来源，当前包含 {{ homepage.item_count }} 条示例条目。</p>
+  </div>
+</section>
+
+<section>
+  <h3>最近条目</h3>
+  {% if homepage.recent_items %}
+    <ul>
+      {% for item in homepage.recent_items %}
+        <li>
+          <strong><a href="{{ url_for('main.item_detail', slug=item.slug) }}">{{ item.title }}</a></strong>
+          <span>· {{ item.source_name }}</span>
+          {% if item.summary %}
+            <div>{{ item.summary }}</div>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>数据库尚未初始化，暂无最近条目。</p>
+  {% endif %}
+</section>
+{% endblock %}

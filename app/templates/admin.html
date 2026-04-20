@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+{% block title %}后台管理 - 搜索聚合站{% endblock %}
+{% block content %}
+<section>
+  <h2>后台管理</h2>
+  <p>数据库状态：已接入 {{ stats.source_count }} 个来源，当前共有 {{ stats.item_count }} 条公开条目。</p>
+
+  <div class="admin-actions">
+    <a class="button-link" href="{{ url_for('main.admin_import') }}">手动导入</a>
+    <a class="button-link button-link-secondary" href="{{ url_for('main.admin_status') }}">系统状态</a>
+    <form class="admin-inline-form" method="post" action="{{ url_for('main.admin_logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button-link button-link-secondary" type="submit">退出登录</button>
+    </form>
+  </div>
+
+  {% if publish_message %}
+  <div class="feedback-banner feedback-success">
+    <strong>{{ publish_message }}</strong>
+    {% if published_item %}
+    <div class="admin-meta admin-meta-secondary">
+      <span>{{ published_item.slug }}</span>
+      <span>{{ published_item.status }}</span>
+      <span>{{ published_item.published_at }}</span>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if publish_errors %}
+  <div class="feedback-banner feedback-error">
+    <strong>发布失败</strong>
+    <ul class="error-list">
+      {% for error in publish_errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="admin-dashboard">
+    <section class="admin-panel">
+      <h3>数据源管理</h3>
+      {% if dashboard['sources'] %}
+      <ul class="admin-list">
+        {% for source in dashboard['sources'] %}
+        <li class="admin-list-item">
+          <strong>{{ source.name }}</strong>
+          <div class="admin-meta">
+            <span>{{ source.slug }}</span>
+            <span>{{ source.source_type }}</span>
+            <span>{{ '已启用' if source.enabled else '已停用' }}</span>
+          </div>
+          <div class="admin-actions">
+            <a class="button-link button-link-secondary" href="{{ url_for('main.admin_edit_source', slug=source.slug) }}">编辑来源</a>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="admin-empty">暂无数据源，请先初始化数据库。</p>
+      {% endif %}
+    </section>
+
+    <section class="admin-panel">
+      <h3>条目管理（含草稿）</h3>
+      <p class="admin-copy">此列表展示最新条目，包含已发布内容与新导入的草稿，便于后台立即管理。</p>
+      {% if dashboard['items'] %}
+      <ul class="admin-list">
+        {% for item in dashboard['items'] %}
+        <li class="admin-list-item">
+          <strong>{{ item.title }}</strong>
+          <div class="admin-meta">
+            <span>{{ item.slug }}</span>
+            <span>{{ item.status }}</span>
+            <span>{{ item.category_name or '未分类' }}</span>
+          </div>
+          <div class="admin-meta admin-meta-secondary">
+            <span>来源：{{ item.source_name }}</span>
+            <span>更新时间：{{ item.updated_at }}</span>
+            {% if item.external_url %}
+            <a href="{{ item.external_url }}" target="_blank" rel="noopener noreferrer">查看原文</a>
+            {% endif %}
+          </div>
+          {% if item.status == 'draft' %}
+          <div class="admin-actions">
+            <a class="button-link button-link-secondary" href="{{ url_for('main.admin_edit_item', slug=item.slug) }}">编辑</a>
+            <form class="admin-publish-form" method="post" action="{{ url_for('main.admin_publish_item', slug=item.slug) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="admin-publish-button" type="submit">发布</button>
+            </form>
+          </div>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="admin-empty">暂无条目，请先初始化数据库。</p>
+      {% endif %}
+    </section>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}编辑来源 - 搜索聚合站{% endblock %}
+{% block content %}
+<section>
+  <h2>编辑来源</h2>
+
+  {% set display_source = saved_source or source %}
+
+  {% if display_source %}
+  <div class="feedback-banner feedback-info">
+    <strong>当前来源信息</strong>
+    <p>当前来源：{{ display_source.name }}（{{ display_source.slug }} / {{ display_source.source_type }}）</p>
+  </div>
+  {% endif %}
+
+  {% if save_message %}
+  <div class="feedback-banner feedback-success">
+    <strong>{{ save_message }}</strong>
+    {% if saved_source %}
+    <p>当前来源：{{ saved_source.name }}（{{ saved_source.slug }} / {{ saved_source.source_type }}）</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if errors %}
+  <div class="feedback-banner feedback-error">
+    <strong>保存失败</strong>
+    <ul class="error-list">
+      {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form class="admin-form" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <label>
+      来源名称
+      <input name="name" type="text" value="{{ form_data.name }}">
+    </label>
+
+    <label>
+      来源 slug
+      <input name="slug" type="text" value="{{ form_data.slug }}">
+    </label>
+
+    <label>
+      来源类型
+      <input name="source_type" type="text" value="{{ form_data.source_type }}">
+    </label>
+
+    <label>
+      来源地址
+      <input name="base_url" type="url" value="{{ form_data.base_url }}">
+    </label>
+
+    <label class="checkbox-label">
+      <input name="enabled" value="1" type="checkbox" {% if form_data.enabled %}checked{% endif %}>
+      启用来源
+    </label>
+
+    <label>
+      备注
+      <textarea name="notes" rows="4">{{ form_data.notes }}</textarea>
+    </label>
+
+    <div class="admin-actions">
+      <button class="button-link" type="submit">保存来源</button>
+      <a class="button-link button-link-secondary" href="{{ url_for('main.admin') }}">返回后台</a>
+    </div>
+  </form>
+</section>
+{% endblock %}
