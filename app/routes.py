@@ -28,7 +28,9 @@ from .db import (
     get_item_detail,
     get_search_category_options,
     get_search_source_options,
+    get_search_tag_options,
     normalize_search_query,
+    normalize_search_sort,
     publish_item,
     search_items,
     update_draft_item,
@@ -95,14 +97,22 @@ def index():
     mode = request.args.get('mode', 'local').strip()
     if mode not in {'local', 'aggregate'}:
         mode = 'local'
+    sort = normalize_search_sort(request.args.get('sort', ''))
     homepage_data = get_homepage_data()
     source_options = get_search_source_options()
+    category_options = get_search_category_options()
+    tag_options = get_search_tag_options()
     return render_template(
         'index.html',
         query=q,
         homepage=homepage_data,
         source_options=source_options,
+        category_options=category_options,
+        tag_options=tag_options,
         selected_source_slug='',
+        selected_category_slug='',
+        selected_tag_slug='',
+        selected_sort=sort,
         search_mode=mode,
     )
 
@@ -112,7 +122,9 @@ def search():
     q = request.args.get('q', '')
     source_slug = request.args.get('source', '').strip()
     category_slug = request.args.get('category', '').strip()
+    tag_slug = request.args.get('tag', '').strip()
     mode = request.args.get('mode', 'local').strip()
+    sort = normalize_search_sort(request.args.get('sort', ''))
     if mode not in {'local', 'aggregate'}:
         mode = 'local'
     normalized_query = normalize_search_query(q)
@@ -124,6 +136,10 @@ def search():
     category_lookup = {option['slug']: option for option in category_options}
     selected_category = category_lookup.get(category_slug)
     effective_category_slug = selected_category['slug'] if selected_category else ''
+    tag_options = get_search_tag_options()
+    tag_lookup = {option['slug']: option for option in tag_options}
+    selected_tag = tag_lookup.get(tag_slug)
+    effective_tag_slug = selected_tag['slug'] if selected_tag else ''
     if mode == 'aggregate':
         results = []
         aggregate_notice = '聚合搜索功能开发中，后续将支持外部搜索源接入。'
@@ -132,6 +148,8 @@ def search():
             normalized_query,
             source_slug=effective_source_slug,
             category_slug=effective_category_slug,
+            tag_slug=effective_tag_slug,
+            sort=sort,
         )
         aggregate_notice = None
     return render_template(
@@ -145,6 +163,10 @@ def search():
         category_options=category_options,
         selected_category_slug=effective_category_slug,
         selected_category=selected_category,
+        tag_options=tag_options,
+        selected_tag_slug=effective_tag_slug,
+        selected_tag=selected_tag,
+        selected_sort=sort,
         search_mode=mode,
         aggregate_notice=aggregate_notice,
     )

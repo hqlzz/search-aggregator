@@ -1,5 +1,92 @@
 # 开发进展记录
 
+## 2026-04-21 12:17 CST
+
+### 本轮目标
+停止继续开发，先整理当前已实现的排序能力与项目状态，为提交到 GitHub 做好文档收口。
+
+### 本轮动作
+- 重新检查 `git status`、`git diff`、`git log`、`gh auth status` 与本地仓库远端状态，确认当前分支为 `main`、远端为 `origin/main`，且尚未存在新的本地提交
+- 复核 `app/db.py`、`app/routes.py`、`app/templates/index.html`、`app/templates/search_results.html` 与 `tests/test_search.py` 的未提交改动，确认除标签筛选外，排序能力也已实际实现并具备测试覆盖
+- 核对 `README.md`、`docs/project-status.md`、`docs/todo.md` 与本进展记录，修正文档中仍把“排序能力”标为未完成的陈旧描述
+- 运行 `date '+%Y-%m-%d %H:%M:%S %Z'`，记录本次收口时间戳，准备进入 git 提交阶段
+
+### 本轮结果
+当前工作树已确认包含“标签筛选 + 排序能力”两项搜索增强成果；项目文档已同步到真实代码状态，下一步可以安全执行 git commit 与 git push。
+
+### 验证结果
+- `git status --short` / `git diff --stat`：确认存在未提交改动，主要涉及 `app/db.py`、`app/routes.py`、模板、测试与状态文档
+- `git fetch origin` + `git rev-list --left-right --count origin/main...HEAD`：确认当前本地分支未落后也未领先远端，可直接在 `main` 上提交
+- `gh auth status`：命令可用，当前环境具备 GitHub 认证状态
+- `date '+%Y-%m-%d %H:%M:%S %Z'` -> `2026-04-21 12:17:59 CST`
+
+### 下一步
+- 执行 `git add` / `git commit`，生成本轮搜索增强提交
+- 推送到 `origin/main`
+- 推送后回报 commit hash 与本轮交付摘要
+
+---
+
+## 2026-04-21 00:21 CST
+
+### 本轮目标
+继续推进搜索增强，完成标签筛选最小可用闭环，并保持首页与结果页筛选入口一致。
+
+### 本轮动作
+- 重新检查 `app/db.py`、`app/routes.py`、`app/templates/index.html`、`app/templates/search_results.html` 与 `tests/test_search.py`，确认 schema 已具备 `tags` / `item_tags`，但前台尚未打通标签筛选 UI 与查询链路
+- 按 TDD 先在 `tests/test_search.py` 增加 `get_search_tag_options()`、首页标签筛选 UI、结果页标签选项、已选标签保留、未知标签安全降级等失败用例
+- 运行 `PYTHONPATH=/root/search-aggregator /root/search-aggregator/.venv/bin/pytest tests/test_search.py::test_homepage_renders_tag_filter_options tests/test_search.py::test_search_page_renders_tag_filter_options tests/test_search.py::test_search_page_filters_results_and_preserves_selected_tag tests/test_search.py::test_search_page_ignores_unknown_tag_filter -q`，确认 4 个新测试先失败，再最小修改实现
+- 在 `app/db.py` 新增 `get_search_tag_options()`，并为 `search_items()` 增加 `tag_slug` 过滤能力；在 `app/routes.py` 透传 `tag_options`、处理 `tag` 参数并对未知 slug 安全降级
+- 在 `app/templates/index.html` 与 `app/templates/search_results.html` 搜索表单中增加“按标签筛选”下拉框，并在结果页增加“当前筛选标签”摘要
+- 运行 `PYTHONPATH=/root/search-aggregator /root/search-aggregator/.venv/bin/pytest tests/test_search.py -q`、`PYTHONPATH=/root/search-aggregator /root/search-aggregator/.venv/bin/pytest tests -q` 与 `date '+%Y-%m-%d %H:%M:%S %Z'`，确认标签筛选交付后搜索测试、全量测试与时间戳记录均正常
+- 更新 `README.md`、`docs/project-status.md`、`docs/todo.md` 与本进展记录，留痕标签筛选闭环已完成的最新阶段
+
+### 本轮结果
+前台首页与搜索结果页现已都支持来源 / 分类 / 标签三类筛选，结果页会保留已选标签并展示当前筛选标签摘要，未知标签参数会安全降级到“全部标签”；本轮按 TDD 完成交付，并保持搜索测试与全量测试继续全绿。
+
+### 验证结果
+- `PYTHONPATH=/root/search-aggregator /root/search-aggregator/.venv/bin/pytest tests/test_search.py::test_homepage_renders_tag_filter_options tests/test_search.py::test_search_page_renders_tag_filter_options tests/test_search.py::test_search_page_filters_results_and_preserves_selected_tag tests/test_search.py::test_search_page_ignores_unknown_tag_filter -q` -> 初次 `FFFF`，修复后 `4 passed in 0.25s`
+- `PYTHONPATH=/root/search-aggregator /root/search-aggregator/.venv/bin/pytest tests/test_search.py -q` -> `36 passed in 1.87s`
+- `PYTHONPATH=/root/search-aggregator /root/search-aggregator/.venv/bin/pytest tests -q` -> `104 passed in 5.24s`
+- `date '+%Y-%m-%d %H:%M:%S %Z'` -> `2026-04-21 00:21:06 CST`
+
+### 下一步
+- 为搜索结果增加排序能力，并明确默认排序语义与 UI 呈现
+- 为搜索结果增加摘要/片段展示，提升搜索命中可读性
+- 持续补后台导入的非法来源、非法分类、非法外链、slug 冲突等回归测试
+
+---
+
+## 2026-04-20 23:49 CST
+
+### 本轮目标
+继续推进搜索增强，补齐首页统一搜索入口缺失的分类筛选 UI，使首页与结果页的筛选入口保持一致。
+
+### 本轮动作
+- 重新检查 `app/routes.py`、`app/templates/index.html`、`tests/test_search.py` 与 `docs/project-status.md`，确认搜索结果页已支持分类筛选，但首页统一搜索入口仍缺失同类筛选控件
+- 按 TDD 先在 `tests/test_search.py` 增加 `test_homepage_renders_category_filter_options`，要求首页渲染“按分类筛选”下拉框、`name="category"` 参数与公开分类选项值
+- 运行 `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests/test_search.py::test_homepage_renders_category_filter_options -v`，确认新测试先失败，失败原因是首页 HTML 中尚未包含“按分类筛选”
+- 在 `app/routes.py` 的 `/` 路由中补充 `get_search_category_options()` 查询结果，以及 `selected_category_slug=''` 模板上下文
+- 在 `app/templates/index.html` 搜索表单中增加“按分类筛选”下拉框，复用结果页已有的选项与选中态语义
+- 运行 `date '+%Y-%m-%d %H:%M:%S %Z'`、`PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests/test_search.py -q` 与 `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests -q`，确认时间戳、搜索测试与全量回归均正常
+- 更新 `docs/project-status.md`、`docs/todo.md` 与本进展记录，留痕首页筛选入口补齐后的最新阶段
+
+### 本轮结果
+首页统一搜索入口现已补齐分类筛选下拉框，前台首页与搜索结果页都具备来源+分类双筛选入口；本轮按 TDD 完成交付，并保持搜索测试与全量测试继续全绿。
+
+### 验证结果
+- `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests/test_search.py::test_homepage_renders_category_filter_options -v` -> 初次失败 1 次，修复后已包含在后续回归通过中
+- `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests/test_search.py -q` -> `30 passed in 1.38s`
+- `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests -q` -> `98 passed in 4.14s`
+- `date '+%Y-%m-%d %H:%M:%S %Z'` -> `2026-04-20 23:49:28 CST`
+
+### 下一步
+- 继续搜索增强，优先实现标签筛选，并让首页与结果页继续保持入口一致
+- 为搜索结果增加排序与摘要/片段展示，提升结果页可用性
+- 持续补后台导入的非法来源、非法分类、非法外链、slug 冲突等回归测试
+
+---
+
 ## 2026-04-20 16:21 CST
 
 ### 本轮目标

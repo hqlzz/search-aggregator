@@ -25,6 +25,19 @@
         <option value="{{ category.slug }}"{% if selected_category_slug == category.slug %} selected{% endif %}>{{ category.name }}</option>
       {% endfor %}
     </select>
+    <label for="results-tag">按标签筛选</label>
+    <select id="results-tag" name="tag">
+      <option value=""{% if not selected_tag_slug %} selected{% endif %}>全部标签</option>
+      {% for tag in tag_options %}
+        <option value="{{ tag.slug }}"{% if selected_tag_slug == tag.slug %} selected{% endif %}>{{ tag.name }}</option>
+      {% endfor %}
+    </select>
+    <label for="results-sort">排序方式</label>
+    <select id="results-sort" name="sort">
+      <option value="relevance"{% if selected_sort == 'relevance' %} selected{% endif %}>按相关度</option>
+      <option value="newest"{% if selected_sort == 'newest' %} selected{% endif %}>最新优先</option>
+      <option value="oldest"{% if selected_sort == 'oldest' %} selected{% endif %}>最早优先</option>
+    </select>
     <button type="submit">搜索</button>
   </form>
   <div class="placeholder-card">
@@ -39,6 +52,9 @@
     {% endif %}
     {% if selected_category and search_mode == 'local' %}
       <p>当前筛选分类：{{ selected_category.name }}</p>
+    {% endif %}
+    {% if selected_tag and search_mode == 'local' %}
+      <p>当前筛选标签：{{ selected_tag.name }}</p>
     {% endif %}
     {% if aggregate_notice %}
       <p>{{ aggregate_notice }}</p>

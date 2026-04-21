@@ -12,6 +12,14 @@ RECENT_ITEMS_LIMIT = 5
 SEARCH_RESULTS_LIMIT = 20
 MANUAL_IMPORT_DEFAULT_STATUS = 'draft'
 SLUG_SEPARATOR_PATTERN = re.compile(r'[^a-z0-9]+')
+SEARCH_SORT_RELEVANCE = 'relevance'
+SEARCH_SORT_NEWEST = 'newest'
+SEARCH_SORT_OLDEST = 'oldest'
+VALID_SEARCH_SORTS = {
+    SEARCH_SORT_RELEVANCE,
+    SEARCH_SORT_NEWEST,
+    SEARCH_SORT_OLDEST,
+}
 
 
 class ManualImportValidationError(ValueError):
@@ -29,6 +37,13 @@ class PublishValidationError(ManualImportValidationError):
 
 def normalize_search_query(query):
     return ' '.join(query.split())
+
+
+def normalize_search_sort(sort):
+    normalized_sort = (sort or '').strip().lower()
+    if normalized_sort not in VALID_SEARCH_SORTS:
+        return SEARCH_SORT_RELEVANCE
+    return normalized_sort
 
 
 def get_db():
@@ -732,10 +747,36 @@ def get_search_category_options():
     return [dict(row) for row in rows]
 
 
-def search_items(query, limit=SEARCH_RESULTS_LIMIT, source_slug=None, category_slug=None):
+def get_search_tag_options():
+    if not has_bootstrapped_tables() or not table_exists('tags') or not table_exists('item_tags'):
+        return []
+
+    rows = get_db().execute(
+        """
+        SELECT DISTINCT tags.name, tags.slug
+        FROM tags
+        JOIN item_tags ON item_tags.tag_id = tags.id
+        JOIN items ON items.id = item_tags.item_id
+        WHERE items.status = 'published'
+        ORDER BY tags.name COLLATE NOCASE ASC, tags.id ASC
+        """
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def search_items(
+    query,
+    limit=SEARCH_RESULTS_LIMIT,
+    source_slug=None,
+    category_slug=None,
+    tag_slug=None,
+    sort=SEARCH_SORT_RELEVANCE,
+):
     normalized_query = normalize_search_query(query)
     normalized_source_slug = (source_slug or '').strip()
     normalized_category_slug = (category_slug or '').strip()
+    normalized_tag_slug = (tag_slug or '').strip()
+    normalized_sort = normalize_search_sort(sort)
     if not normalized_query or not has_bootstrapped_tables() or not table_exists('item_search'):
         return []
 
@@ -749,6 +790,8 @@ def search_items(query, limit=SEARCH_RESULTS_LIMIT, source_slug=None, category_s
             items.slug,
             items.summary,
             items.external_url,
+            items.created_at,
+            items.published_at,
             sources.name AS source_name,
             sources.slug AS source_slug,
             categories.slug AS category_slug,
@@ -767,7 +810,24 @@ def search_items(query, limit=SEARCH_RESULTS_LIMIT, source_slug=None, category_s
     if normalized_category_slug:
         sql += ' AND categories.slug = ?'
         params.append(normalized_category_slug)
-    sql += ' ORDER BY score, items.id DESC LIMIT ?'
+    if normalized_tag_slug:
+        sql += """
+          AND EXISTS (
+                SELECT 1
+                FROM item_tags
+                JOIN tags ON tags.id = item_tags.tag_id
+                WHERE item_tags.item_id = items.id
+                  AND tags.slug = ?
+          )
+        """
+        params.append(normalized_tag_slug)
+    if normalized_sort == SEARCH_SORT_NEWEST:
+        sql += ' ORDER BY COALESCE(items.published_at, items.created_at) DESC, items.id DESC'
+    elif normalized_sort == SEARCH_SORT_OLDEST:
+        sql += ' ORDER BY COALESCE(items.published_at, items.created_at) ASC, items.id ASC'
+    else:
+        sql += ' ORDER BY score, items.id DESC'
+    sql += ' LIMIT ?'
     params.append(limit)
     rows = db.execute(sql, tuple(params)).fetchall()
     return [dict(row) for row in rows]

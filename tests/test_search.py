@@ -4,6 +4,7 @@ from app.db import (
     get_recent_items,
     get_search_category_options,
     get_search_source_options,
+    get_search_tag_options,
     search_items,
 )
 
@@ -138,6 +139,48 @@ def test_get_search_category_options_excludes_categories_with_only_unpublished_i
         db.commit()
 
         options = get_search_category_options()
+
+    assert options == []
+
+
+def test_get_search_tag_options_returns_tags_with_published_items(app, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    with app.app_context():
+        db = get_db()
+        item_one_id = db.execute("SELECT id FROM items WHERE slug = ?", ('sample-item-1',)).fetchone()[0]
+        item_three_id = db.execute("SELECT id FROM items WHERE slug = ?", ('sample-item-3',)).fetchone()[0]
+        db.execute("INSERT OR IGNORE INTO tags (name, slug) VALUES (?, ?)", ('Python', 'python'))
+        db.execute("INSERT OR IGNORE INTO tags (name, slug) VALUES (?, ?)", ('Flask', 'flask'))
+        python_tag_id = db.execute("SELECT id FROM tags WHERE slug = ?", ('python',)).fetchone()[0]
+        flask_tag_id = db.execute("SELECT id FROM tags WHERE slug = ?", ('flask',)).fetchone()[0]
+        db.execute("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_one_id, python_tag_id))
+        db.execute("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_three_id, flask_tag_id))
+        db.commit()
+
+        options = get_search_tag_options()
+
+    assert options == [
+        {'name': 'Flask', 'slug': 'flask'},
+        {'name': 'Python', 'slug': 'python'},
+    ]
+
+
+def test_get_search_tag_options_excludes_tags_with_only_unpublished_items(app, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    with app.app_context():
+        db = get_db()
+        item_three_id = db.execute("SELECT id FROM items WHERE slug = ?", ('sample-item-3',)).fetchone()[0]
+        db.execute("INSERT OR IGNORE INTO tags (name, slug) VALUES (?, ?)", ('DraftOnly', 'draft-only'))
+        tag_id = db.execute("SELECT id FROM tags WHERE slug = ?", ('draft-only',)).fetchone()[0]
+        db.execute("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_three_id, tag_id))
+        db.execute("UPDATE items SET status = 'draft' WHERE slug = ?", ('sample-item-3',))
+        db.commit()
+
+        options = get_search_tag_options()
 
     assert options == []
 
@@ -301,6 +344,54 @@ def test_homepage_renders_search_mode_options(client, runner):
     assert '聚合搜索' in html
 
 
+def test_homepage_renders_category_filter_options(client, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    response = client.get('/')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert '按分类筛选' in html
+    assert 'name="category"' in html
+    assert 'value="example-category"' in html
+
+
+def test_homepage_renders_tag_filter_options(client, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    with client.application.app_context():
+        db = get_db()
+        item_one_id = db.execute("SELECT id FROM items WHERE slug = ?", ('sample-item-1',)).fetchone()[0]
+        db.execute("INSERT OR IGNORE INTO tags (name, slug) VALUES (?, ?)", ('Python', 'python'))
+        tag_id = db.execute("SELECT id FROM tags WHERE slug = ?", ('python',)).fetchone()[0]
+        db.execute("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_one_id, tag_id))
+        db.commit()
+
+    response = client.get('/')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert '按标签筛选' in html
+    assert 'name="tag"' in html
+    assert 'value="python"' in html
+
+
+def test_homepage_renders_sort_options(client, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    response = client.get('/')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert '排序方式' in html
+    assert 'value="relevance" selected' in html
+    assert 'value="newest"' in html
+    assert 'value="oldest"' in html
+
+
 def test_search_page_shows_placeholder_when_aggregate_mode_is_selected(client, runner):
     init_result = runner.invoke(args=['init-db'])
     assert init_result.exit_code == 0
@@ -372,6 +463,72 @@ def test_search_page_filters_results_and_preserves_selected_category(client, run
     assert '当前筛选分类：第二分类' in html
 
 
+def test_search_page_renders_tag_filter_options(client, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    with client.application.app_context():
+        db = get_db()
+        item_one_id = db.execute("SELECT id FROM items WHERE slug = ?", ('sample-item-1',)).fetchone()[0]
+        item_three_id = db.execute("SELECT id FROM items WHERE slug = ?", ('sample-item-3',)).fetchone()[0]
+        db.execute("INSERT OR IGNORE INTO tags (name, slug) VALUES (?, ?)", ('Python', 'python'))
+        db.execute("INSERT OR IGNORE INTO tags (name, slug) VALUES (?, ?)", ('Flask', 'flask'))
+        python_tag_id = db.execute("SELECT id FROM tags WHERE slug = ?", ('python',)).fetchone()[0]
+        flask_tag_id = db.execute("SELECT id FROM tags WHERE slug = ?", ('flask',)).fetchone()[0]
+        db.execute("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_one_id, python_tag_id))
+        db.execute("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_three_id, flask_tag_id))
+        db.commit()
+
+    response = client.get('/search?q=示例内容')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert '按标签筛选' in html
+    assert '<option value="flask">Flask</option>' in html
+    assert '<option value="python">Python</option>' in html
+
+
+def test_search_page_filters_results_and_preserves_selected_tag(client, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    with client.application.app_context():
+        db = get_db()
+        item_one_id = db.execute("SELECT id FROM items WHERE slug = ?", ('sample-item-1',)).fetchone()[0]
+        item_three_id = db.execute("SELECT id FROM items WHERE slug = ?", ('sample-item-3',)).fetchone()[0]
+        db.execute("INSERT OR IGNORE INTO tags (name, slug) VALUES (?, ?)", ('Python', 'python'))
+        db.execute("INSERT OR IGNORE INTO tags (name, slug) VALUES (?, ?)", ('Flask', 'flask'))
+        python_tag_id = db.execute("SELECT id FROM tags WHERE slug = ?", ('python',)).fetchone()[0]
+        flask_tag_id = db.execute("SELECT id FROM tags WHERE slug = ?", ('flask',)).fetchone()[0]
+        db.execute("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_one_id, python_tag_id))
+        db.execute("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_three_id, flask_tag_id))
+        db.commit()
+
+    response = client.get('/search?q=示例内容&tag=python')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert '共找到 1 条结果' in html
+    assert '示例条目 1' in html
+    assert '示例条目 3' not in html
+    assert 'option value="python" selected' in html
+    assert '当前筛选标签：Python' in html
+
+
+def test_search_page_ignores_unknown_tag_filter(client, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    response = client.get('/search?q=示例内容&tag=unknown-tag')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert '共找到 3 条结果' in html
+    assert '当前筛选标签：' not in html
+    assert 'id="results-tag"' in html
+    assert 'option value="" selected' in html
+
+
 def test_search_page_ignores_unknown_category_filter(client, runner):
     init_result = runner.invoke(args=['init-db'])
     assert init_result.exit_code == 0
@@ -384,6 +541,54 @@ def test_search_page_ignores_unknown_category_filter(client, runner):
     assert '当前筛选分类：' not in html
     assert 'id="results-category"' in html
     assert 'option value="" selected' in html
+
+
+def test_search_page_defaults_to_relevance_sort(client, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    response = client.get('/search?q=示例内容')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert '排序方式' in html
+    assert 'option value="relevance" selected' in html
+
+
+def test_search_page_sorts_results_by_newest(client, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    response = client.get('/search?q=示例内容&sort=newest')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'option value="newest" selected' in html
+    assert html.index('sample-item-3') < html.index('sample-item-2') < html.index('sample-item-1')
+
+
+def test_search_page_sorts_results_by_oldest(client, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    response = client.get('/search?q=示例内容&sort=oldest')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'option value="oldest" selected' in html
+    assert html.index('sample-item-1') < html.index('sample-item-2') < html.index('sample-item-3')
+
+
+def test_search_page_ignores_unknown_sort_parameter(client, runner):
+    init_result = runner.invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
+    response = client.get('/search?q=示例内容&sort=unknown-order')
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'option value="relevance" selected' in html
+    assert html.index('sample-item-3') < html.index('sample-item-2') < html.index('sample-item-1')
 
 
 def test_search_page_handles_empty_query_without_hitting_database(client, runner):

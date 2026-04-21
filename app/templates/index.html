@@ -19,6 +19,26 @@
         <option value="{{ source.slug }}"{% if selected_source_slug == source.slug %} selected{% endif %}>{{ source.name }}</option>
       {% endfor %}
     </select>
+    <label for="homepage-category">按分类筛选</label>
+    <select id="homepage-category" name="category">
+      <option value=""{% if not selected_category_slug %} selected{% endif %}>全部分类</option>
+      {% for category in category_options %}
+        <option value="{{ category.slug }}"{% if selected_category_slug == category.slug %} selected{% endif %}>{{ category.name }}</option>
+      {% endfor %}
+    </select>
+    <label for="homepage-tag">按标签筛选</label>
+    <select id="homepage-tag" name="tag">
+      <option value=""{% if not selected_tag_slug %} selected{% endif %}>全部标签</option>
+      {% for tag in tag_options %}
+        <option value="{{ tag.slug }}"{% if selected_tag_slug == tag.slug %} selected{% endif %}>{{ tag.name }}</option>
+      {% endfor %}
+    </select>
+    <label for="homepage-sort">排序方式</label>
+    <select id="homepage-sort" name="sort">
+      <option value="relevance"{% if selected_sort == 'relevance' %} selected{% endif %}>按相关度</option>
+      <option value="newest"{% if selected_sort == 'newest' %} selected{% endif %}>最新优先</option>
+      <option value="oldest"{% if selected_sort == 'oldest' %} selected{% endif %}>最早优先</option>
+    </select>
     <button type="submit">搜索</button>
   </form>
   <div class="placeholder-card">

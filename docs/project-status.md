@@ -2,12 +2,12 @@
 
 - 项目名称：搜索聚合站（Search Aggregator）
 - 状态：进行中
-- 当前阶段：双模式搜索入口已补齐来源+分类双筛选，下一步进入标签筛选 / 排序 / 摘要增强与后续聚合搜索 provider 抽象
-- 最后更新：2026-04-20 21:17 CST
+- 当前阶段：首页与搜索结果页已补齐来源+分类+标签三类筛选，并完成排序能力，下一步进入摘要增强与后续聚合搜索 provider 抽象
+- 最后更新：2026-04-21 12:17 CST
 
 ## 当前结论
 
-项目已从“双模式搜索入口第一轮已落地”推进到“站内搜索支持来源+分类双筛选”的状态：
+项目已从“双模式搜索入口第一轮已落地”推进到“站内搜索支持来源+分类+标签三类筛选，并具备排序能力”的状态：
 - 技术栈保持 Flask + SQLite + Jinja2 的轻量组合
 - 已建立前台首页、搜索结果页、条目详情页、后台管理页、后台手动导入页、后台状态页、健康检查接口
 - 已接通 SQLite FTS5 搜索查询、详情查询、首页最近条目导航，以及后台数据源/条目只读列表查询
@@ -23,43 +23,37 @@
 - 后台来源编辑页现已支持查看与修改来源名称、slug、类型、地址、启用状态与备注；成功保存后跳转到新 slug 页面，失败时保留提交值并返回明确错误
 - 后台来源编辑页在 GET 与保存成功后的回显场景中都会展示“当前来源信息”，便于管理员确认自己正在编辑的来源对象
 - 前台首页 `/` 与搜索结果页 `/search` 已新增“搜索模式”选择器，当前支持 `站内搜索` 与 `聚合搜索` 两种入口语义
-- 默认模式仍为站内搜索，保留现有来源筛选与本地 FTS 检索逻辑
-- `/search` 已支持按来源与按分类双筛选：结果页提供两个下拉框、保留已选值，并展示当前筛选来源/分类摘要
-- 搜索数据层现已提供公开分类选项查询，并支持通过 `category_slug` 收窄 FTS 搜索结果
-- `/search` 在接收到未知 `source` slug、未知 `category` slug 或未知 `mode` 时会安全降级到默认语义，不会错误缩小结果范围或进入异常状态
+- 默认模式仍为站内搜索，保留现有本地 FTS 检索逻辑
+- `/` 首页统一搜索入口现已支持按来源、分类、标签三类筛选与排序方式选择，和结果页保持一致的检索入口语义
+- `/search` 已支持按来源、分类、标签三类筛选与排序：结果页提供对应下拉框、保留已选值，并展示当前筛选来源/分类/标签摘要
+- 搜索数据层现已提供公开分类选项查询、公开标签选项查询，并支持通过 `category_slug` / `tag_slug` 收窄 FTS 搜索结果，同时支持 `relevance` / `newest` / `oldest` 三种排序语义
+- `/search` 在接收到未知 `source` slug、未知 `category` slug、未知 `tag` slug、未知 `sort` 或未知 `mode` 时会安全降级到默认语义，不会错误缩小结果范围或进入异常状态
 - 当 `/search` 以 `mode=aggregate` 访问时，页面会明确显示“当前搜索模式：聚合搜索”，并返回聚合搜索开发中提示，不再错误落入本地搜索结果语义
 - 聚合搜索结果区第一轮以占位状态落地，为下一步接入 provider 抽象层与真实外部结果闭环预留前台结构
-- `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests/test_search.py -q` 当前结果为 `29 passed in 1.38s`
-- `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests -q` 当前结果为 `97 passed in 4.30s`
+- `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests/test_search.py -q` 当前结果为 `36 passed in 1.87s`
+- `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests -q` 当前结果为 `104 passed in 5.24s`
 - 当前未恢复定时任务推进；本轮为手动开发推进
 
 ## 本轮已完成
 
-- 重新检查 `app/db.py`、`app/routes.py`、`app/templates/search_results.html`、`tests/test_search.py` 与状态文档，选择“分类筛选”作为这一轮最小可交付切片
-- 按 TDD 先在 `tests/test_search.py` 中补充失败用例，覆盖：
-  - 分类选项查询
-  - `category_slug` 数据层过滤
-  - 搜索结果页分类下拉框渲染
-  - 已选分类保留与当前筛选分类摘要
-  - 未知分类参数安全降级
-- 在数据层新增 `get_search_category_options()`，并为 `search_items()` 增加 `category_slug` 过滤与 `category_slug` 返回字段
-- 在 `/search` 路由接入分类参数解析、可用分类白名单校验、安全降级与模板上下文透传
-- 在 `search_results.html` 增加“按分类筛选”下拉框与当前筛选分类提示，保持与来源筛选一致的交互语义
-- 建立本地 `.venv` 后执行 `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests/test_search.py -q` 与 `PYTHONPATH=/root/search-aggregator .venv/bin/pytest tests -q`，确认分类筛选交付后仍保持全绿
-- 更新 `docs/project-status.md`、`docs/todo.md` 与 `docs/progress-log.md`，同步项目阶段与验证结果
+- 重新检查 `app/db.py`、`app/routes.py`、`app/templates/index.html`、`app/templates/search_results.html` 与 `tests/test_search.py`，确认排序能力已在代码中实现且覆盖首页与结果页筛选表单
+- 搜索数据层已增加 `normalize_search_sort()`、合法排序白名单，以及 `relevance` / `newest` / `oldest` 三种排序语义；默认非法值安全回退到 `relevance`
+- `/` 首页与 `/search` 结果页模板已提供“排序方式”下拉框，并保留用户已选排序值
+- 搜索测试已覆盖首页排序入口、结果页默认排序、最新优先、最早优先以及未知排序参数安全降级
+- 已补充更新 `README.md`、`docs/project-status.md`、`docs/todo.md` 与 `docs/progress-log.md`，同步项目阶段、验证结果与下一步候选
 
 ## 当前阻塞
 
-- 无新的阻塞；当前来源筛选相关测试、数据库测试与全量测试均已通过
+- 无新的阻塞；当前首页/结果页筛选与排序相关测试、全量测试均已通过
 - 当前鉴权方案仍为单口令 + session 的最小上线版本，尚未扩展为多用户、口令轮换审计或更细粒度权限模型
-- 搜索增强中的标签 / 分类筛选、排序、摘要/片段展示与导入聚合能力仍未开始实现，属于后续主要工作面
+- 搜索增强中的摘要/片段展示与导入聚合能力仍未开始实现，属于后续主要工作面
 
 ## 下一轮目标候选
 
-1. 在来源筛选已交付的基础上，继续搜索增强：优先实现标签 / 分类筛选
-2. 为搜索结果增加排序与摘要/片段展示，提升可用性
-3. 继续为后台导入补最小回归测试（非法来源、非法分类、非法外链、slug 冲突）
-4. 视搜索增强方案，补充后台导航与前台筛选入口文案
+1. 为搜索结果增加摘要/片段展示，提升搜索命中可读性
+2. 继续为后台导入补最小回归测试（非法来源、非法分类、非法外链、slug 冲突）
+3. 视搜索增强方案，补充后台导航与前台筛选入口文案
+4. 开始设计聚合搜索 provider 抽象与结果映射结构
 
 ## 风险说明
 
