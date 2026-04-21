@@ -359,6 +359,9 @@ def test_update_source_updates_fields_and_enabled_flag(app, runner):
 
 
 def test_update_source_rejects_missing_source_before_validation(app):
+    init_result = app.test_cli_runner().invoke(args=['init-db'])
+    assert init_result.exit_code == 0
+
     with app.app_context():
         with pytest.raises(ManualImportValidationError) as exc_info:
             update_source(
@@ -395,7 +398,6 @@ def test_update_source_rejects_invalid_fields_and_duplicate_slug(app, runner):
     assert exc_info.value.status_code == 400
     assert exc_info.value.errors == [
         '来源名称不能为空',
-        '来源 slug 不能为空',
         '来源类型不能为空',
         '来源地址仅支持 http 或 https',
         '来源 slug 已存在，请使用其他 slug',

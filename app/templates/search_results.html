@@ -64,16 +64,29 @@
 </section>
 
 <section>
-  {% if search_mode == 'aggregate' %}
-    <p>聚合搜索结果区预留中。</p>
+  {% if search_mode == 'aggregate' and results %}
+    <ul class="result-list">
+      {% for item in results %}
+        <li class="result-card">
+          <h3><a href="{{ item.url }}" target="_blank" rel="noopener noreferrer">{{ item.title }}</a></h3>
+          <p class="result-meta">来源：{{ item.source_name }}</p>
+          {% if item.excerpt %}
+            <p class="result-excerpt">{{ item.excerpt }}</p>
+          {% endif %}
+          <p><a href="{{ item.url }}" target="_blank" rel="noopener noreferrer">打开结果</a></p>
+        </li>
+      {% endfor %}
+    </ul>
+  {% elif search_mode == 'aggregate' %}
+    <p>{{ aggregate_notice or '聚合搜索结果区预留中。' }}</p>
   {% elif results %}
     <ul class="result-list">
       {% for item in results %}
         <li class="result-card">
           <h3><a href="{{ url_for('main.item_detail', slug=item.slug) }}">{{ item.title }}</a></h3>
           <p class="result-meta">来源：{{ item.source_name }}</p>
-          {% if item.summary %}
-            <p>{{ item.summary }}</p>
+          {% if item.excerpt %}
+            <p class="result-excerpt">{{ item.excerpt }}</p>
           {% endif %}
           <p><a href="{{ url_for('main.item_detail', slug=item.slug) }}">查看详情</a></p>
           {% if item.external_url %}

@@ -3,7 +3,7 @@
 {% block content %}
 <section>
   <h2>后台系统状态</h2>
-  <p>查看数据库初始化、来源启用情况、公开/草稿条目规模以及最近更新时间。</p>
+  <p>查看数据库初始化、来源启用情况、公开/草稿条目规模，以及上线前关键检查项。</p>
 
   <div class="admin-actions">
     <a class="button-link button-link-secondary" href="{{ url_for('main.admin') }}">返回后台</a>
@@ -11,6 +11,49 @@
   </div>
 
   <div class="admin-dashboard">
+    <section class="admin-panel">
+      <h3>上线前检查</h3>
+      <div class="admin-meta">
+        <span class="status-badge {{ 'status-badge-ok' if release_snapshot.ready_for_launch else 'status-badge-error' }}">
+          {{ '可试运行上线' if release_snapshot.ready_for_launch else '仍有阻塞项' }}
+        </span>
+      </div>
+
+      {% if release_snapshot.blocking_issues %}
+      <div class="feedback-banner feedback-error">
+        <strong>阻塞项</strong>
+        <ul class="error-list">
+          {% for issue in release_snapshot.blocking_issues %}
+          <li>{{ issue }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if release_snapshot.warning_issues %}
+      <div class="feedback-banner feedback-info">
+        <strong>提醒项</strong>
+        <ul class="error-list">
+          {% for issue in release_snapshot.warning_issues %}
+          <li>{{ issue }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <ul class="admin-list">
+        {% for check in release_snapshot.checks %}
+        <li class="admin-list-item">
+          <strong>{{ check.label }}</strong>
+          <div class="admin-meta">
+            <span class="status-badge status-badge-{{ check.status }}">{{ check.status }}</span>
+            <span>{{ check.message }}</span>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+
     <section class="admin-panel">
       <h3>系统就绪度</h3>
       <ul class="admin-list">

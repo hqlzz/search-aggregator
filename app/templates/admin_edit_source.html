@@ -1,8 +1,9 @@
 {% extends 'base.html' %}
-{% block title %}编辑来源 - 搜索聚合站{% endblock %}
+{% set is_create_mode = form_mode == 'create' %}
+{% block title %}{{ '新增来源' if is_create_mode else '编辑来源' }} - 搜索聚合站{% endblock %}
 {% block content %}
 <section>
-  <h2>编辑来源</h2>
+  <h2>{{ '新增来源' if is_create_mode else '编辑来源' }}</h2>
 
   {% set display_source = saved_source or source %}
 
@@ -22,11 +23,31 @@
   </div>
   {% endif %}
 
+  {% if sync_message %}
+  <div class="feedback-banner feedback-success">
+    <strong>{{ sync_message }}</strong>
+    {% if sync_summary %}
+    <p>本次来源：{{ sync_summary.source_name }}（{{ sync_summary.source_slug }}）</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {% if errors %}
   <div class="feedback-banner feedback-error">
-    <strong>保存失败</strong>
+    <strong>{{ '创建失败' if is_create_mode else '保存失败' }}</strong>
     <ul class="error-list">
       {% for error in errors %}
+      <li>{{ error }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if sync_errors %}
+  <div class="feedback-banner feedback-error">
+    <strong>抓取失败</strong>
+    <ul class="error-list">
+      {% for error in sync_errors %}
       <li>{{ error }}</li>
       {% endfor %}
     </ul>
@@ -48,12 +69,26 @@
 
     <label>
       来源类型
-      <input name="source_type" type="text" value="{{ form_data.source_type }}">
+      <select name="source_type">
+        {% for option in source_type_options %}
+        <option value="{{ option.value }}"{% if form_data.source_type == option.value %} selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
     </label>
+
+    <div class="admin-help-card">
+      <strong>来源类型说明</strong>
+      <ul class="admin-help-list">
+        {% for option in source_type_options %}
+        <li><code>{{ option.value }}</code>：{{ option.description }}</li>
+        {% endfor %}
+      </ul>
+    </div>
 
     <label>
       来源地址
       <input name="base_url" type="url" value="{{ form_data.base_url }}">
+      <span class="field-help"><code>rss</code> 需要填写真实订阅地址；<code>wikipedia</code> 留空时默认使用 <code>https://en.wikipedia.org</code>；<code>hackernews</code> 留空时默认使用 <code>https://hn.algolia.com</code>。</span>
     </label>
 
     <label class="checkbox-label">
@@ -67,9 +102,20 @@
     </label>
 
     <div class="admin-actions">
-      <button class="button-link" type="submit">保存来源</button>
+      <button class="button-link" type="submit">{{ '创建来源' if is_create_mode else '保存来源' }}</button>
       <a class="button-link button-link-secondary" href="{{ url_for('main.admin') }}">返回后台</a>
     </div>
   </form>
+
+  {% if not is_create_mode and display_source and display_source.source_type == 'rss' %}
+  <div class="admin-panel source-sync-panel">
+    <h3>RSS 抓取</h3>
+    <p class="field-help">会从当前订阅地址抓取最新条目，并为新内容生成草稿；重复内容会自动跳过。</p>
+    <form class="admin-inline-form" method="post" action="{{ url_for('main.admin_sync_source', slug=display_source.slug) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button-link" type="submit">抓取最新内容</button>
+    </form>
+  </div>
+  {% endif %}
 </section>
 {% endblock %}

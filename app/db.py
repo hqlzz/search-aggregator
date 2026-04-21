@@ -7,24 +7,62 @@ import click
 from flask import current_app, g
 from flask.cli import with_appcontext
 
+from .aggregate import (
+    DEFAULT_HACKER_NEWS_BASE_URL,
+    DEFAULT_WIKIPEDIA_BASE_URL,
+    SUPPORTED_AGGREGATE_SOURCE_TYPES,
+)
+
 
 RECENT_ITEMS_LIMIT = 5
 SEARCH_RESULTS_LIMIT = 20
-MANUAL_IMPORT_DEFAULT_STATUS = 'draft'
-SLUG_SEPARATOR_PATTERN = re.compile(r'[^a-z0-9]+')
-SEARCH_SORT_RELEVANCE = 'relevance'
-SEARCH_SORT_NEWEST = 'newest'
-SEARCH_SORT_OLDEST = 'oldest'
+MANUAL_IMPORT_DEFAULT_STATUS = "draft"
+MANUAL_SOURCE_TYPE = "manual"
+RSS_SOURCE_TYPE = "rss"
+SLUG_SEPARATOR_PATTERN = re.compile(r"[^a-z0-9]+")
+SEARCH_SORT_RELEVANCE = "relevance"
+SEARCH_SORT_NEWEST = "newest"
+SEARCH_SORT_OLDEST = "oldest"
+SEARCH_EXCERPT_LENGTH = 80
+SEARCH_EXCERPT_PADDING = 18
 VALID_SEARCH_SORTS = {
     SEARCH_SORT_RELEVANCE,
     SEARCH_SORT_NEWEST,
     SEARCH_SORT_OLDEST,
 }
+SUPPORTED_SOURCE_TYPES = {MANUAL_SOURCE_TYPE, RSS_SOURCE_TYPE, *SUPPORTED_AGGREGATE_SOURCE_TYPES}
+SUPPORTED_SOURCE_TYPES_LABEL = "manual、rss、wikipedia 或 hackernews"
+SOURCE_TYPE_OPTIONS = (
+    {
+        "value": MANUAL_SOURCE_TYPE,
+        "label": "manual",
+        "description": "站内手动维护的本地来源，不参与外部聚合请求。",
+        "default_base_url": "",
+    },
+    {
+        "value": RSS_SOURCE_TYPE,
+        "label": "rss",
+        "description": "抓取 RSS/Atom 订阅源并生成后台草稿，适合做半自动内容导入。",
+        "default_base_url": "",
+    },
+    {
+        "value": "wikipedia",
+        "label": "wikipedia",
+        "description": "聚合 Wikipedia 开放搜索接口；来源地址留空时默认使用英文站。",
+        "default_base_url": DEFAULT_WIKIPEDIA_BASE_URL,
+    },
+    {
+        "value": "hackernews",
+        "label": "hackernews",
+        "description": "聚合 Hacker News Algolia 搜索接口；适合快速接入技术社区讨论结果。",
+        "default_base_url": DEFAULT_HACKER_NEWS_BASE_URL,
+    },
+)
 
 
 class ManualImportValidationError(ValueError):
     def __init__(self, errors, status_code=400):
-        super().__init__('manual import validation failed')
+        super().__init__("manual import validation failed")
         self.errors = errors
         self.status_code = status_code
 
@@ -36,25 +74,81 @@ class PublishValidationError(ManualImportValidationError):
 
 
 def normalize_search_query(query):
-    return ' '.join(query.split())
+    return " ".join(query.split())
+
+
+def normalize_search_excerpt_text(value):
+    return " ".join((value or "").split())
 
 
 def normalize_search_sort(sort):
-    normalized_sort = (sort or '').strip().lower()
+    normalized_sort = (sort or "").strip().lower()
     if normalized_sort not in VALID_SEARCH_SORTS:
         return SEARCH_SORT_RELEVANCE
     return normalized_sort
 
 
+def trim_search_excerpt(text):
+    normalized_text = normalize_search_excerpt_text(text)
+    if len(normalized_text) <= SEARCH_EXCERPT_LENGTH:
+        return normalized_text
+    return f"{normalized_text[:SEARCH_EXCERPT_LENGTH - 3].rstrip()}..."
+
+
+def build_content_excerpt(content, query):
+    normalized_content = normalize_search_excerpt_text(content)
+    if not normalized_content:
+        return None
+
+    normalized_query = normalize_search_excerpt_text(query)
+    if not normalized_query:
+        return trim_search_excerpt(normalized_content)
+
+    content_lower = normalized_content.lower()
+    query_lower = normalized_query.lower()
+    match_start = content_lower.find(query_lower)
+
+    if match_start == -1:
+        return trim_search_excerpt(normalized_content)
+
+    start = max(0, match_start - SEARCH_EXCERPT_PADDING)
+    end = max(match_start + len(normalized_query) + SEARCH_EXCERPT_PADDING, start + SEARCH_EXCERPT_LENGTH)
+    end = min(len(normalized_content), end)
+    if end - start > SEARCH_EXCERPT_LENGTH:
+        end = start + SEARCH_EXCERPT_LENGTH
+    if match_start + len(normalized_query) > end:
+        end = min(len(normalized_content), match_start + len(normalized_query) + SEARCH_EXCERPT_PADDING)
+        start = max(0, end - SEARCH_EXCERPT_LENGTH)
+
+    excerpt = normalized_content[start:end].strip()
+    if start > 0:
+        excerpt = f"...{excerpt}"
+    if end < len(normalized_content):
+        excerpt = f"{excerpt}..."
+    return excerpt
+
+
+def build_search_excerpt(summary, content, query):
+    normalized_summary = normalize_search_excerpt_text(summary)
+    if normalized_summary:
+        return trim_search_excerpt(normalized_summary), "summary"
+
+    content_excerpt = build_content_excerpt(content, query)
+    if content_excerpt:
+        return content_excerpt, "content"
+
+    return None, None
+
+
 def get_db():
-    if 'db' not in g:
-        g.db = sqlite3.connect(current_app.config['DATABASE'])
+    if "db" not in g:
+        g.db = sqlite3.connect(current_app.config["DATABASE"])
         g.db.row_factory = sqlite3.Row
     return g.db
 
 
 def close_db(e=None):
-    db = g.pop('db', None)
+    db = g.pop("db", None)
     if db is not None:
         db.close()
 
@@ -69,16 +163,16 @@ def table_exists(table_name):
 
 
 def has_bootstrapped_tables():
-    return table_exists('sources') and table_exists('items')
+    return table_exists("sources") and table_exists("items")
 
 
 def init_db():
-    db_path = Path(current_app.config['DATABASE'])
+    db_path = Path(current_app.config["DATABASE"])
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     db = get_db()
-    with current_app.open_resource('schema.sql') as f:
-        schema_sql = f.read().decode('utf-8')
+    with current_app.open_resource("schema.sql") as f:
+        schema_sql = f.read().decode("utf-8")
 
     with db:
         db.executescript(schema_sql)
@@ -92,12 +186,12 @@ def seed_db(db):
         INSERT OR IGNORE INTO categories (name, slug)
         VALUES (?, ?)
         """,
-        ('示例分类', 'example-category'),
+        ("示例分类", "example-category"),
     )
 
     sources = [
-        ('示例站点 A', 'example-source-a', 'manual', 'https://example.com/a', '默认种子来源 A'),
-        ('示例站点 B', 'example-source-b', 'manual', 'https://example.com/b', '默认种子来源 B'),
+        ("示例站点 A", "example-source-a", "manual", "https://example.com/a", "默认种子来源 A"),
+        ("示例站点 B", "example-source-b", "manual", "https://example.com/b", "默认种子来源 B"),
     ]
     db.executemany(
         """
@@ -108,23 +202,50 @@ def seed_db(db):
     )
 
     category_row = db.execute(
-        'SELECT id FROM categories WHERE slug = ?',
-        ('example-category',),
+        "SELECT id FROM categories WHERE slug = ?",
+        ("example-category",),
     ).fetchone()
-    category_id = category_row['id']
+    category_id = category_row["id"]
 
     source_ids = {
-        row['slug']: row['id']
+        row["slug"]: row["id"]
         for row in db.execute(
-            'SELECT id, slug FROM sources WHERE slug IN (?, ?)',
-            ('example-source-a', 'example-source-b'),
+            "SELECT id, slug FROM sources WHERE slug IN (?, ?)",
+            ("example-source-a", "example-source-b"),
         ).fetchall()
     }
 
     items = [
-        (source_ids['example-source-a'], category_id, '示例条目 1', 'sample-item-1', '用于初始化数据库的示例条目 1', '示例内容 1', 'https://example.com/a/1', '系统'),
-        (source_ids['example-source-a'], category_id, '示例条目 2', 'sample-item-2', '用于初始化数据库的示例条目 2', '示例内容 2', 'https://example.com/a/2', '系统'),
-        (source_ids['example-source-b'], category_id, '示例条目 3', 'sample-item-3', '用于初始化数据库的示例条目 3', '示例内容 3', 'https://example.com/b/3', '系统'),
+        (
+            source_ids["example-source-a"],
+            category_id,
+            "示例条目 1",
+            "sample-item-1",
+            "用于初始化数据库的示例条目 1",
+            "示例内容 1",
+            "https://example.com/a/1",
+            "系统",
+        ),
+        (
+            source_ids["example-source-a"],
+            category_id,
+            "示例条目 2",
+            "sample-item-2",
+            "用于初始化数据库的示例条目 2",
+            "示例内容 2",
+            "https://example.com/a/2",
+            "系统",
+        ),
+        (
+            source_ids["example-source-b"],
+            category_id,
+            "示例条目 3",
+            "sample-item-3",
+            "用于初始化数据库的示例条目 3",
+            "示例内容 3",
+            "https://example.com/b/3",
+            "系统",
+        ),
     ]
     db.executemany(
         """
@@ -137,23 +258,23 @@ def seed_db(db):
     )
 
 
-@click.command('init-db')
+@click.command("init-db")
 @with_appcontext
 def init_db_command():
     init_db()
-    click.echo('Initialized the database.')
+    click.echo("Initialized the database.")
 
 
 def get_stats():
     if not has_bootstrapped_tables():
-        return {'source_count': 0, 'item_count': 0}
+        return {"source_count": 0, "item_count": 0}
 
     db = get_db()
-    source_count = db.execute('SELECT COUNT(*) FROM sources').fetchone()[0]
+    source_count = db.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
     item_count = db.execute(
         "SELECT COUNT(*) FROM items WHERE status = 'published'"
     ).fetchone()[0]
-    return {'source_count': source_count, 'item_count': item_count}
+    return {"source_count": source_count, "item_count": item_count}
 
 
 def get_recent_items(limit=RECENT_ITEMS_LIMIT):
@@ -178,9 +299,9 @@ def get_recent_items(limit=RECENT_ITEMS_LIMIT):
 def get_homepage_data(limit=RECENT_ITEMS_LIMIT):
     stats = get_stats()
     return {
-        'source_count': stats['source_count'],
-        'item_count': stats['item_count'],
-        'recent_items': get_recent_items(limit=limit),
+        "source_count": stats["source_count"],
+        "item_count": stats["item_count"],
+        "recent_items": get_recent_items(limit=limit),
     }
 
 
@@ -200,7 +321,7 @@ def get_admin_sources():
 
 
 def get_admin_categories():
-    if not table_exists('categories'):
+    if not table_exists("categories"):
         return []
 
     db = get_db()
@@ -216,28 +337,129 @@ def get_admin_categories():
 
 def get_admin_import_options():
     return {
-        'sources': get_admin_sources(),
-        'categories': get_admin_categories(),
+        "sources": get_admin_sources(),
+        "categories": get_admin_categories(),
     }
+
+
+def get_source_type_options():
+    return [dict(option) for option in SOURCE_TYPE_OPTIONS]
+
+
+def normalize_source_type(source_type):
+    return (source_type or "").strip().lower()
+
+
+def normalize_source_payload(*, name, slug, source_type, base_url, enabled, notes):
+    cleaned_name = name.strip()
+    cleaned_slug = slug.strip()
+    cleaned_source_type = normalize_source_type(source_type)
+    cleaned_base_url = base_url.strip()
+    default_base_urls = {
+        "wikipedia": DEFAULT_WIKIPEDIA_BASE_URL,
+        "hackernews": DEFAULT_HACKER_NEWS_BASE_URL,
+    }
+    if cleaned_source_type in default_base_urls and not cleaned_base_url:
+        cleaned_base_url = default_base_urls[cleaned_source_type]
+
+    return {
+        "name": cleaned_name,
+        "slug": cleaned_slug,
+        "source_type": cleaned_source_type,
+        "base_url": cleaned_base_url or None,
+        "enabled": 1 if enabled else 0,
+        "notes": notes.strip() or None,
+    }
+
+
+def validate_source_payload(payload, *, existing_source_id=None):
+    errors = []
+    db = get_db()
+
+    if not payload["name"]:
+        errors.append("来源名称不能为空")
+    if not payload["slug"]:
+        errors.append("来源 slug 不能为空")
+    if not payload["source_type"]:
+        errors.append("来源类型不能为空")
+    elif payload["source_type"] not in SUPPORTED_SOURCE_TYPES:
+        errors.append(f"来源类型仅支持 {SUPPORTED_SOURCE_TYPES_LABEL}")
+    elif payload["source_type"] == RSS_SOURCE_TYPE and not payload["base_url"]:
+        errors.append("RSS 来源地址不能为空")
+
+    if payload["base_url"] and not is_safe_external_url(payload["base_url"]):
+        errors.append("来源地址仅支持 http 或 https")
+
+    if payload["name"]:
+        duplicate_name_row = db.execute(
+            """
+            SELECT id
+            FROM sources
+            WHERE name = ? AND (? IS NULL OR id != ?)
+            LIMIT 1
+            """,
+            (payload["name"], existing_source_id, existing_source_id),
+        ).fetchone()
+        if duplicate_name_row is not None:
+            errors.append("来源名称已存在，请使用其他名称")
+
+    if payload["slug"]:
+        duplicate_slug_row = db.execute(
+            """
+            SELECT id
+            FROM sources
+            WHERE slug = ? AND (? IS NULL OR id != ?)
+            LIMIT 1
+            """,
+            (payload["slug"], existing_source_id, existing_source_id),
+        ).fetchone()
+        if duplicate_slug_row is not None:
+            errors.append("来源 slug 已存在，请使用其他 slug")
+
+    if errors:
+        raise ManualImportValidationError(errors)
+
+
+def get_enabled_aggregate_sources(supported_source_types):
+    if not has_bootstrapped_tables() or not supported_source_types:
+        return []
+
+    normalized_source_types = tuple(
+        sorted({source_type.strip().lower() for source_type in supported_source_types if source_type})
+    )
+    if not normalized_source_types:
+        return []
+
+    placeholders = ", ".join("?" for _ in normalized_source_types)
+    rows = get_db().execute(
+        f"""
+        SELECT name, slug, source_type, base_url
+        FROM sources
+        WHERE enabled = 1 AND lower(source_type) IN ({placeholders})
+        ORDER BY id ASC
+        """,
+        normalized_source_types,
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def slugify(value):
     normalized_value = value.strip().lower()
     transliterations = (
-        ('后台', ' backend '),
-        ('手动', ' manual '),
-        ('导入', ' import '),
-        ('待发布', ' pending publish '),
-        ('发布', ' publish '),
-        ('草稿', ' draft '),
-        ('条目', ' item '),
+        ("后台", " backend "),
+        ("手动", " manual "),
+        ("导入", " import "),
+        ("待发布", " pending publish "),
+        ("发布", " publish "),
+        ("草稿", " draft "),
+        ("条目", " item "),
     )
     for original, replacement in transliterations:
         normalized_value = normalized_value.replace(original, replacement)
 
-    ascii_value = normalized_value.encode('ascii', 'ignore').decode('ascii')
-    slug = SLUG_SEPARATOR_PATTERN.sub('-', ascii_value).strip('-')
-    return slug or 'item'
+    ascii_value = normalized_value.encode("ascii", "ignore").decode("ascii")
+    slug = SLUG_SEPARATOR_PATTERN.sub("-", ascii_value).strip("-")
+    return slug or "item"
 
 
 def build_unique_item_slug(title):
@@ -246,8 +468,8 @@ def build_unique_item_slug(title):
     slug = base_slug
     suffix = 2
 
-    while db.execute('SELECT 1 FROM items WHERE slug = ? LIMIT 1', (slug,)).fetchone() is not None:
-        slug = f'{base_slug}-{suffix}'
+    while db.execute("SELECT 1 FROM items WHERE slug = ? LIMIT 1", (slug,)).fetchone() is not None:
+        slug = f"{base_slug}-{suffix}"
         suffix += 1
 
     return slug
@@ -256,16 +478,15 @@ def build_unique_item_slug(title):
 def _get_source_row_for_admin_write(source_slug):
     cleaned_source_slug = source_slug.strip()
     if not cleaned_source_slug:
-        raise ManualImportValidationError(['请选择来源'])
+        raise ManualImportValidationError(["请选择来源"])
 
     source_row = get_db().execute(
-        'SELECT id, slug FROM sources WHERE slug = ? LIMIT 1',
+        "SELECT id, slug FROM sources WHERE slug = ? LIMIT 1",
         (cleaned_source_slug,),
     ).fetchone()
     if source_row is None:
-        raise ManualImportValidationError(['请选择有效来源'])
+        raise ManualImportValidationError(["请选择有效来源"])
     return source_row
-
 
 
 def _get_category_id_for_admin_write(category_slug):
@@ -274,22 +495,32 @@ def _get_category_id_for_admin_write(category_slug):
         return None
 
     category_row = get_db().execute(
-        'SELECT id FROM categories WHERE slug = ? LIMIT 1',
+        "SELECT id FROM categories WHERE slug = ? LIMIT 1",
         (cleaned_category_slug,),
     ).fetchone()
     if category_row is None:
-        raise ManualImportValidationError(['请选择有效分类'])
-    return category_row['id']
+        raise ManualImportValidationError(["请选择有效分类"])
+    return category_row["id"]
 
+
+def validate_item_payload_fields(summary, content, external_url, errors):
+    cleaned_summary = summary.strip()
+    cleaned_content = content.strip()
+    cleaned_external_url = external_url.strip()
+
+    if not cleaned_summary and not cleaned_content and not cleaned_external_url:
+        errors.append("摘要、正文或外链至少填写一项")
+
+    return cleaned_summary, cleaned_content, cleaned_external_url
 
 
 def get_admin_edit_item(slug):
     if not has_bootstrapped_tables():
-        raise ManualImportValidationError(['数据库尚未初始化，暂时无法编辑条目'], 503)
+        raise ManualImportValidationError(["数据库尚未初始化，暂时无法编辑条目"], 503)
 
     db = get_db()
     row = db.execute(
-        '''
+        """
         SELECT
             items.id,
             items.slug,
@@ -305,110 +536,118 @@ def get_admin_edit_item(slug):
         LEFT JOIN categories ON categories.id = items.category_id
         WHERE items.slug = ?
         LIMIT 1
-        ''',
+        """,
         (slug,),
     ).fetchone()
     if row is None:
-        raise ManualImportValidationError(['条目不存在，无法编辑'], 404)
-    if row['status'] != 'draft':
-        raise ManualImportValidationError(['仅允许编辑 draft 状态条目'], 409)
+        raise ManualImportValidationError(["条目不存在，无法编辑"], 404)
+    if row["status"] != "draft":
+        raise ManualImportValidationError(["仅允许编辑 draft 状态条目"], 409)
 
     return {
-        'slug': row['slug'],
-        'title': row['title'],
-        'summary': row['summary'],
-        'content': row['content'],
-        'external_url': row['external_url'],
-        'source_slug': row['source_slug'],
-        'category_slug': row['category_slug'],
-        'status': row['status'],
+        "slug": row["slug"],
+        "title": row["title"],
+        "summary": row["summary"],
+        "content": row["content"],
+        "external_url": row["external_url"],
+        "source_slug": row["source_slug"],
+        "category_slug": row["category_slug"],
+        "status": row["status"],
     }
-
 
 
 def get_admin_edit_source(slug):
     if not has_bootstrapped_tables():
-        raise ManualImportValidationError(['数据库尚未初始化，暂时无法编辑来源'], 503)
+        raise ManualImportValidationError(["数据库尚未初始化，暂时无法编辑来源"], 503)
 
     row = get_db().execute(
-        '''
+        """
         SELECT name, slug, source_type, base_url, enabled, notes
         FROM sources
         WHERE slug = ?
         LIMIT 1
-        ''',
+        """,
         (slug,),
     ).fetchone()
     if row is None:
-        raise ManualImportValidationError(['来源不存在，无法编辑'], 404)
+        raise ManualImportValidationError(["来源不存在，无法编辑"], 404)
 
     return dict(row)
 
 
+def create_source(*, name, slug, source_type, base_url, enabled, notes):
+    if not has_bootstrapped_tables():
+        raise ManualImportValidationError(["数据库尚未初始化，暂时无法新增来源"], 503)
+
+    db = get_db()
+    payload = normalize_source_payload(
+        name=name,
+        slug=slug,
+        source_type=source_type,
+        base_url=base_url,
+        enabled=enabled,
+        notes=notes,
+    )
+    validate_source_payload(payload)
+
+    with db:
+        cursor = db.execute(
+            """
+            INSERT INTO sources (name, slug, source_type, base_url, enabled, notes)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["name"],
+                payload["slug"],
+                payload["source_type"],
+                payload["base_url"],
+                payload["enabled"],
+                payload["notes"],
+            ),
+        )
+
+    created_row = db.execute(
+        """
+        SELECT id, name, slug, source_type, base_url, enabled, notes
+        FROM sources
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (cursor.lastrowid,),
+    ).fetchone()
+    return dict(created_row)
+
 
 def update_source(existing_slug, *, name, slug, source_type, base_url, enabled, notes):
+    if not has_bootstrapped_tables():
+        raise ManualImportValidationError(["数据库尚未初始化，暂时无法编辑来源"], 503)
+
     db = get_db()
-    try:
-        existing_row = db.execute(
-            '''
-            SELECT id
-            FROM sources
-            WHERE slug = ?
-            LIMIT 1
-            ''',
-            (existing_slug,),
-        ).fetchone()
-    except sqlite3.OperationalError:
-        existing_row = None
-
-    if existing_row is None:
-        if not has_bootstrapped_tables():
-            raise ManualImportValidationError(['来源不存在，无法编辑'], 404)
-        raise ManualImportValidationError(['来源不存在，无法编辑'], 404)
-
-    cleaned_name = name.strip()
-    raw_slug = slug.strip()
-    cleaned_source_type = source_type.strip()
-    cleaned_base_url = base_url.strip() or None
-    cleaned_notes = notes.strip() or None
-    enabled_value = 1 if enabled else 0
-
-    errors = []
-    if not cleaned_name:
-        errors.append('来源名称不能为空')
-
-    duplicate_slug_to_check = raw_slug
-    if not raw_slug:
-        errors.append('来源 slug 不能为空')
-        duplicate_slug_to_check = existing_slug
-    elif raw_slug != existing_slug and raw_slug == 'example-source-b':
-        errors.append('来源 slug 不能为空')
-
-    if not cleaned_source_type:
-        errors.append('来源类型不能为空')
-    if cleaned_base_url and not is_safe_external_url(cleaned_base_url):
-        errors.append('来源地址仅支持 http 或 https')
-
-    duplicate_row = db.execute(
-        '''
+    existing_row = db.execute(
+        """
         SELECT id
         FROM sources
-        WHERE slug = ? AND id != ?
+        WHERE slug = ?
         LIMIT 1
-        ''',
-        (duplicate_slug_to_check, existing_row['id']),
+        """,
+        (existing_slug,),
     ).fetchone()
-    if duplicate_row is not None:
-        errors.append('来源 slug 已存在，请使用其他 slug')
+    if existing_row is None:
+        raise ManualImportValidationError(["来源不存在，无法编辑"], 404)
 
-    if errors:
-        raise ManualImportValidationError(errors)
-
-    cleaned_slug = raw_slug
+    payload = normalize_source_payload(
+        name=name,
+        slug=slug,
+        source_type=source_type,
+        base_url=base_url,
+        enabled=enabled,
+        notes=notes,
+    )
+    validate_source_payload(payload, existing_source_id=existing_row["id"])
 
     with db:
         db.execute(
-            '''
+            """
             UPDATE sources
             SET name = ?,
                 slug = ?,
@@ -418,55 +657,57 @@ def update_source(existing_slug, *, name, slug, source_type, base_url, enabled, 
                 notes = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-            ''',
+            """,
             (
-                cleaned_name,
-                cleaned_slug,
-                cleaned_source_type,
-                cleaned_base_url,
-                enabled_value,
-                cleaned_notes,
-                existing_row['id'],
+                payload["name"],
+                payload["slug"],
+                payload["source_type"],
+                payload["base_url"],
+                payload["enabled"],
+                payload["notes"],
+                existing_row["id"],
             ),
         )
 
     updated_row = db.execute(
-        '''
+        """
         SELECT id, name, slug, source_type, base_url, enabled, notes
         FROM sources
         WHERE id = ?
         LIMIT 1
-        ''',
-        (existing_row['id'],),
+        """,
+        (existing_row["id"],),
     ).fetchone()
     return dict(updated_row)
 
 
-
 def update_draft_item(slug, *, source_slug, category_slug, title, summary, content, external_url):
     cleaned_title = title.strip()
-    cleaned_summary = summary.strip()
-    cleaned_content = content.strip()
-    cleaned_external_url = external_url.strip()
+    errors = []
+    cleaned_summary, cleaned_content, cleaned_external_url = validate_item_payload_fields(
+        summary,
+        content,
+        external_url,
+        errors,
+    )
 
     if not has_bootstrapped_tables():
-        raise ManualImportValidationError(['数据库尚未初始化，暂时无法编辑条目'], 503)
+        raise ManualImportValidationError(["数据库尚未初始化，暂时无法编辑条目"], 503)
 
-    errors = []
     if not cleaned_title:
-        errors.append('标题不能为空')
+        errors.append("标题不能为空")
     if cleaned_external_url and not is_safe_external_url(cleaned_external_url):
-        errors.append('外链仅支持 http 或 https')
+        errors.append("外链仅支持 http 或 https")
 
     db = get_db()
     existing_row = db.execute(
-        'SELECT id, slug, status FROM items WHERE slug = ? LIMIT 1',
+        "SELECT id, slug, status FROM items WHERE slug = ? LIMIT 1",
         (slug,),
     ).fetchone()
     if existing_row is None:
-        raise ManualImportValidationError(['条目不存在，无法编辑'], 404)
-    if existing_row['status'] != 'draft':
-        raise ManualImportValidationError(['仅允许编辑 draft 状态条目'], 409)
+        raise ManualImportValidationError(["条目不存在，无法编辑"], 404)
+    if existing_row["status"] != "draft":
+        raise ManualImportValidationError(["仅允许编辑 draft 状态条目"], 409)
 
     source_row = None
     category_id = None
@@ -485,7 +726,7 @@ def update_draft_item(slug, *, source_slug, category_slug, title, summary, conte
 
     with db:
         db.execute(
-            '''
+            """
             UPDATE items
             SET source_id = ?,
                 category_id = ?,
@@ -496,37 +737,41 @@ def update_draft_item(slug, *, source_slug, category_slug, title, summary, conte
                 status = 'draft',
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-            ''',
+            """,
             (
-                source_row['id'],
+                source_row["id"],
                 category_id,
                 cleaned_title,
                 cleaned_summary or None,
                 cleaned_content or None,
                 cleaned_external_url or None,
-                existing_row['id'],
+                existing_row["id"],
             ),
         )
 
     updated_row = db.execute(
-        'SELECT slug, title, status, external_url FROM items WHERE id = ?',
-        (existing_row['id'],),
+        "SELECT slug, title, status, external_url FROM items WHERE id = ?",
+        (existing_row["id"],),
     ).fetchone()
     return dict(updated_row)
 
 
-
 def create_manual_import_item(*, source_slug, category_slug, title, summary, content, external_url):
-    cleaned_title = title.strip()
-    cleaned_summary = summary.strip()
-    cleaned_content = content.strip()
-    cleaned_external_url = external_url.strip()
+    if not has_bootstrapped_tables():
+        raise ManualImportValidationError(["数据库尚未初始化，暂时无法导入条目"], 503)
 
+    cleaned_title = title.strip()
     errors = []
+    cleaned_summary, cleaned_content, cleaned_external_url = validate_item_payload_fields(
+        summary,
+        content,
+        external_url,
+        errors,
+    )
     if not cleaned_title:
-        errors.append('标题不能为空')
+        errors.append("标题不能为空")
     if cleaned_external_url and not is_safe_external_url(cleaned_external_url):
-        errors.append('外链仅支持 http 或 https')
+        errors.append("外链仅支持 http 或 https")
 
     db = get_db()
 
@@ -549,7 +794,7 @@ def create_manual_import_item(*, source_slug, category_slug, title, summary, con
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                source_row['id'],
+                source_row["id"],
                 category_id,
                 cleaned_title,
                 slug,
@@ -561,11 +806,11 @@ def create_manual_import_item(*, source_slug, category_slug, title, summary, con
         )
 
     return {
-        'id': cursor.lastrowid,
-        'title': cleaned_title,
-        'slug': slug,
-        'status': MANUAL_IMPORT_DEFAULT_STATUS,
-        'external_url': cleaned_external_url or None,
+        "id": cursor.lastrowid,
+        "title": cleaned_title,
+        "slug": slug,
+        "status": MANUAL_IMPORT_DEFAULT_STATUS,
+        "external_url": cleaned_external_url or None,
     }
 
 
@@ -574,7 +819,7 @@ def is_safe_external_url(url):
         return False
 
     parsed_url = urlparse(url)
-    return parsed_url.scheme in {'http', 'https'}
+    return parsed_url.scheme in {"http", "https"}
 
 
 def get_admin_items(limit=10):
@@ -608,25 +853,25 @@ def get_admin_items(limit=10):
 
     items = [dict(row) for row in rows]
     for item in items:
-        if not is_safe_external_url(item['external_url']):
-            item['external_url'] = None
+        if not is_safe_external_url(item["external_url"]):
+            item["external_url"] = None
 
     return items
 
 
 def publish_item(slug):
     if not has_bootstrapped_tables():
-        raise PublishValidationError(['数据库尚未初始化，暂时无法发布条目'], 503)
+        raise PublishValidationError(["数据库尚未初始化，暂时无法发布条目"], 503)
 
     db = get_db()
     row = db.execute(
-        'SELECT id, slug, status FROM items WHERE slug = ? LIMIT 1',
+        "SELECT id, slug, status FROM items WHERE slug = ? LIMIT 1",
         (slug,),
     ).fetchone()
     if row is None:
-        raise PublishValidationError(['条目不存在，无法发布'], 404)
-    if row['status'] != 'draft':
-        raise PublishValidationError(['仅允许发布 draft 状态条目'], 409)
+        raise PublishValidationError(["条目不存在，无法发布"], 404)
+    if row["status"] != "draft":
+        raise PublishValidationError(["仅允许发布 draft 状态条目"], 409)
 
     with db:
         db.execute(
@@ -637,27 +882,27 @@ def publish_item(slug):
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (row['id'],),
+            (row["id"],),
         )
 
     published_row = db.execute(
-        'SELECT slug, status, published_at FROM items WHERE id = ?',
-        (row['id'],),
+        "SELECT slug, status, published_at FROM items WHERE id = ?",
+        (row["id"],),
     ).fetchone()
     return dict(published_row)
 
 
 def get_admin_status_snapshot():
     snapshot = {
-        'database_ready': has_bootstrapped_tables(),
-        'fts_ready': table_exists('item_search'),
-        'source_count': 0,
-        'enabled_source_count': 0,
-        'published_item_count': 0,
-        'draft_item_count': 0,
-        'latest_item_updated_at': None,
+        "database_ready": has_bootstrapped_tables(),
+        "fts_ready": table_exists("item_search"),
+        "source_count": 0,
+        "enabled_source_count": 0,
+        "published_item_count": 0,
+        "draft_item_count": 0,
+        "latest_item_updated_at": None,
     }
-    if not snapshot['database_ready']:
+    if not snapshot["database_ready"]:
         return snapshot
 
     db = get_db()
@@ -671,20 +916,20 @@ def get_admin_status_snapshot():
         """
     ).fetchone()
     snapshot.update(
-        source_count=db.execute('SELECT COUNT(*) FROM sources').fetchone()[0],
-        enabled_source_count=db.execute('SELECT COUNT(*) FROM sources WHERE enabled = 1').fetchone()[0],
-        published_item_count=item_counts['published_item_count'] or 0,
-        draft_item_count=item_counts['draft_item_count'] or 0,
-        latest_item_updated_at=item_counts['latest_item_updated_at'],
+        source_count=db.execute("SELECT COUNT(*) FROM sources").fetchone()[0],
+        enabled_source_count=db.execute("SELECT COUNT(*) FROM sources WHERE enabled = 1").fetchone()[0],
+        published_item_count=item_counts["published_item_count"] or 0,
+        draft_item_count=item_counts["draft_item_count"] or 0,
+        latest_item_updated_at=item_counts["latest_item_updated_at"],
     )
     return snapshot
 
 
 def get_admin_dashboard_data(item_limit=10):
     return {
-        'stats': get_stats(),
-        'sources': get_admin_sources(),
-        'items': get_admin_items(limit=item_limit),
+        "stats": get_stats(),
+        "sources": get_admin_sources(),
+        "items": get_admin_items(limit=item_limit),
     }
 
 
@@ -748,7 +993,7 @@ def get_search_category_options():
 
 
 def get_search_tag_options():
-    if not has_bootstrapped_tables() or not table_exists('tags') or not table_exists('item_tags'):
+    if not has_bootstrapped_tables() or not table_exists("tags") or not table_exists("item_tags"):
         return []
 
     rows = get_db().execute(
@@ -773,11 +1018,11 @@ def search_items(
     sort=SEARCH_SORT_RELEVANCE,
 ):
     normalized_query = normalize_search_query(query)
-    normalized_source_slug = (source_slug or '').strip()
-    normalized_category_slug = (category_slug or '').strip()
-    normalized_tag_slug = (tag_slug or '').strip()
+    normalized_source_slug = (source_slug or "").strip()
+    normalized_category_slug = (category_slug or "").strip()
+    normalized_tag_slug = (tag_slug or "").strip()
     normalized_sort = normalize_search_sort(sort)
-    if not normalized_query or not has_bootstrapped_tables() or not table_exists('item_search'):
+    if not normalized_query or not has_bootstrapped_tables() or not table_exists("item_search"):
         return []
 
     db = get_db()
@@ -789,6 +1034,7 @@ def search_items(
             items.title,
             items.slug,
             items.summary,
+            items.content,
             items.external_url,
             items.created_at,
             items.published_at,
@@ -805,10 +1051,10 @@ def search_items(
     """
     params = [match_query]
     if normalized_source_slug:
-        sql += ' AND sources.slug = ?'
+        sql += " AND sources.slug = ?"
         params.append(normalized_source_slug)
     if normalized_category_slug:
-        sql += ' AND categories.slug = ?'
+        sql += " AND categories.slug = ?"
         params.append(normalized_category_slug)
     if normalized_tag_slug:
         sql += """
@@ -822,15 +1068,27 @@ def search_items(
         """
         params.append(normalized_tag_slug)
     if normalized_sort == SEARCH_SORT_NEWEST:
-        sql += ' ORDER BY COALESCE(items.published_at, items.created_at) DESC, items.id DESC'
+        sql += " ORDER BY COALESCE(items.published_at, items.created_at) DESC, items.id DESC"
     elif normalized_sort == SEARCH_SORT_OLDEST:
-        sql += ' ORDER BY COALESCE(items.published_at, items.created_at) ASC, items.id ASC'
+        sql += " ORDER BY COALESCE(items.published_at, items.created_at) ASC, items.id ASC"
     else:
-        sql += ' ORDER BY score, items.id DESC'
-    sql += ' LIMIT ?'
+        sql += " ORDER BY score, items.id DESC"
+    sql += " LIMIT ?"
     params.append(limit)
     rows = db.execute(sql, tuple(params)).fetchall()
-    return [dict(row) for row in rows]
+    results = []
+    for row in rows:
+        item = dict(row)
+        excerpt, excerpt_source = build_search_excerpt(
+            item.get("summary"),
+            item.get("content"),
+            normalized_query,
+        )
+        item["excerpt"] = excerpt
+        item["excerpt_source"] = excerpt_source
+        item.pop("content", None)
+        results.append(item)
+    return results
 
 
 def init_app(app):

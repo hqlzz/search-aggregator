@@ -7,6 +7,11 @@
 
   <div class="admin-actions">
     <a class="button-link" href="{{ url_for('main.admin_import') }}">手动导入</a>
+    <form class="admin-inline-form" method="post" action="{{ url_for('main.admin_sync_enabled_sources') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button-link" type="submit">批量抓取 RSS</button>
+    </form>
+    <a class="button-link button-link-secondary" href="{{ url_for('main.admin_create_source') }}">新增来源</a>
     <a class="button-link button-link-secondary" href="{{ url_for('main.admin_status') }}">系统状态</a>
     <form class="admin-inline-form" method="post" action="{{ url_for('main.admin_logout') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -38,6 +43,35 @@
   </div>
   {% endif %}
 
+  {% if source_sync_batch_message %}
+  <div class="feedback-banner feedback-success">
+    <strong>{{ source_sync_batch_message }}</strong>
+    {% if source_sync_batch_summary and source_sync_batch_summary.source_count %}
+    <div class="admin-meta admin-meta-secondary">
+      <span>成功来源：{{ source_sync_batch_summary.success_count }}</span>
+      <span>失败来源：{{ source_sync_batch_summary.failure_count }}</span>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if source_sync_batch_errors %}
+  <div class="feedback-banner feedback-error">
+    <strong>批量抓取存在异常</strong>
+    <ul class="error-list">
+      {% for error in source_sync_batch_errors %}
+      <li>
+        {% if error.source_slug %}
+          {{ error.source_name }}（{{ error.source_slug }}）：{{ error.message }}
+        {% else %}
+          {{ error }}
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   <div class="admin-dashboard">
     <section class="admin-panel">
       <h3>数据源管理</h3>
@@ -52,6 +86,12 @@
             <span>{{ '已启用' if source.enabled else '已停用' }}</span>
           </div>
           <div class="admin-actions">
+            {% if source.source_type == 'rss' %}
+            <form class="admin-inline-form" method="post" action="{{ url_for('main.admin_sync_source', slug=source.slug) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="button-link" type="submit">抓取 RSS</button>
+            </form>
+            {% endif %}
             <a class="button-link button-link-secondary" href="{{ url_for('main.admin_edit_source', slug=source.slug) }}">编辑来源</a>
           </div>
         </li>
